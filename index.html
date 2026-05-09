@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>扫雷 - Minesweeper</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  display: flex; justify-content: center; align-items: center;
+  min-height: 100vh; background: #c0c0c0;
+  font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  user-select: none;
+}
+
+.game-container {
+  background: #c0c0c0; padding: 12px;
+  border: 3px solid;
+  border-color: #fff #808080 #808080 #fff;
+  box-shadow: 2px 2px 8px rgba(0,0,0,0.3);
+}
+
+.title-bar {
+  background: #000080; color: #fff; padding: 4px 8px;
+  font-size: 14px; font-weight: bold; margin-bottom: 10px;
+  display: flex; justify-content: space-between; align-items: center;
+}
+
+.title-bar span { font-size: 12px; }
+
+.menu-bar {
+  display: flex; gap: 2px; margin-bottom: 10px;
+}
+
+.menu-bar button {
+  padding: 4px 16px; font-size: 13px; cursor: pointer;
+  background: #c0c0c0; border: 2px solid;
+  border-color: #fff #808080 #808080 #fff;
+  font-family: inherit;
+}
+
+.menu-bar button:active,
+.menu-bar button.active {
+  border-color: #808080 #fff #fff #808080;
+}
+
+.menu-bar button:hover { background: #d4d4d4; }
+
+.status-bar {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px; margin-bottom: 10px;
+  border: 2px solid;
+  border-color: #808080 #fff #fff #808080;
+  background: #c0c0c0;
+}
+
+.counter {
+  background: #000; color: #f00;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 28px; font-weight: bold;
+  padding: 2px 6px; min-width: 60px; text-align: center;
+  letter-spacing: 2px;
+  border: 2px solid;
+  border-color: #808080 #fff #fff #808080;
+}
+
+.face-btn {
+  width: 42px; height: 42px; font-size: 24px;
+  cursor: pointer; border: 2px solid;
+  border-color: #fff #808080 #808080 #fff;
+  background: #c0c0c0; line-height: 1;
+}
+
+.face-btn:active {
+  border-color: #808080 #fff #fff #808080;
+}
+
+.board {
+  display: inline-grid; gap: 0;
+  border: 3px solid;
+  border-color: #808080 #fff #fff #808080;
+  background: #c0c0c0;
+}
+
+.cell {
+  width: 26px; height: 26px;
+  font-size: 14px; font-weight: bold;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; position: relative;
+  border: 2px solid;
+  border-color: #fff #808080 #808080 #fff;
+  background: #c0c0c0;
+}
+
+.cell:active:not(.revealed):not(.flagged) {
+  border-color: #808080 #fff #fff #808080;
+}
+
+.cell.revealed {
+  border: 1px solid #808080;
+  background: #bdbdbd;
+}
+
+.cell.flagged { }
+
+.cell.mine-hit { background: #f00 !important; }
+
+.cell .flag-icon { font-size: 16px; pointer-events: none; }
+
+.cell.color-1 { color: #0000ff; }
+.cell.color-2 { color: #008000; }
+.cell.color-3 { color: #ff0000; }
+.cell.color-4 { color: #000080; }
+.cell.color-5 { color: #800000; }
+.cell.color-6 { color: #008080; }
+.cell.color-7 { color: #000000; }
+.cell.color-8 { color: #808080; }
+
+.level-info {
+  margin-top: 8px; font-size: 13px; color: #222;
+  display: flex; justify-content: center; gap: 20px;
+}
+
+.level-info span { font-weight: bold; color: #000080; }
+</style>
+</head>
+<body>
+
+<div class="game-container">
+  <div class="title-bar">
+    <span>💣 扫雷 Minesweeper</span>
+    <span id="levelLabel">初级</span>
+  </div>
+
+  <div class="menu-bar">
+    <button onclick="setLevel('beginner')" id="btnBeginner">初级</button>
+    <button onclick="setLevel('intermediate')" id="btnIntermediate">中级</button>
+    <button onclick="setLevel('expert')" id="btnExpert">高级</button>
+  </div>
+
+  <div class="status-bar">
+    <div class="counter" id="mineCounter">000</div>
+    <button class="face-btn" onclick="resetGame()" id="faceBtn">🙂</button>
+    <div class="counter" id="timer">000</div>
+  </div>
+
+  <div class="board" id="board"></div>
+
+  <div class="level-info">
+    <div>💣 雷数: <span id="infoMines">10</span></div>
+    <div>📐 大小: <span id="infoSize">9×9</span></div>
+  </div>
+</div>
+
+<script>
+// ── Audio Engine (Web Audio API) ──
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+let audioCtx = null;
+
+function ensureAudio() {
+  if (!audioCtx) audioCtx = new AudioCtx();
+}
+
+function playStartSound() {
+  ensureAudio();
+  const now = audioCtx.currentTime;
+  const notes = [523.25, 659.25, 783.99, 1046.5]; // C5 E5 G5 C6
+  notes.forEach((freq, i) => {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.08, now + i * 0.08);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.08 + 0.2);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(now + i * 0.08); osc.stop(now + i * 0.08 + 0.2);
+  });
+}
+
+function playExplosionSound() {
+  ensureAudio();
+  const now = audioCtx.currentTime;
+  // White noise burst
+  const bufferSize = audioCtx.sampleRate * 0.8;
+  const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 2);
+  }
+  const noise = audioCtx.createBufferSource();
+  noise.buffer = buffer;
+  const noiseGain = audioCtx.createGain();
+  noiseGain.gain.setValueAtTime(0.3, now);
+  noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
+  noise.connect(noiseGain); noiseGain.connect(audioCtx.destination);
+  noise.start(now); noise.stop(now + 0.8);
+
+  // Low boom
+  const osc = audioCtx.createOscillator();
+  const oscGain = audioCtx.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(120, now);
+  osc.frequency.exponentialRampToValueAtTime(30, now + 0.6);
+  oscGain.gain.setValueAtTime(0.4, now);
+  oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+  osc.connect(oscGain); oscGain.connect(audioCtx.destination);
+  osc.start(now); osc.stop(now + 0.7);
+}
+
+function playClickSound() {
+  ensureAudio();
+  const now = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = 'sine'; osc.frequency.value = 800;
+  gain.gain.setValueAtTime(0.06, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.start(now); osc.stop(now + 0.06);
+}
+
+function playFlagSound() {
+  ensureAudio();
+  const now = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = 'sine'; osc.frequency.value = 600;
+  gain.gain.setValueAtTime(0.05, now);
+  gain.gain.linearRampToValueAtTime(0.001, now + 0.08);
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.start(now); osc.stop(now + 0.1);
+}
+
+function playWinSound() {
+  ensureAudio();
+  const now = audioCtx.currentTime;
+  [523, 659, 784, 1047, 784, 1047].forEach((freq, i) => {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'square'; osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.07, now + i * 0.1);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.1 + 0.25);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(now + i * 0.1); osc.stop(now + i * 0.1 + 0.25);
+  });
+}
+
+// ── Game State ──
+const levels = {
+  beginner:  { rows: 9,  cols: 9,  mines: 10, label: '初级' },
+  intermediate: { rows: 16, cols: 16, mines: 40, label: '中级' },
+  expert:    { rows: 16, cols: 30, mines: 99, label: '高级' },
+};
+
+let currentLevel = 'beginner';
+let rows, cols, totalMines;
+let board = [];       // board[r][c] = { mine, revealed, flagged, adjacentMines }
+let gameOver = false;
+let gameWon = false;
+let firstClick = true;
+let minesRemaining = 0;
+let timerValue = 0;
+let timerInterval = null;
+let revealedCount = 0;
+
+// ── DOM refs ──
+const boardEl = document.getElementById('board');
+const mineCounterEl = document.getElementById('mineCounter');
+const timerEl = document.getElementById('timer');
+const faceBtn = document.getElementById('faceBtn');
+const levelLabel = document.getElementById('levelLabel');
+const infoMinesEl = document.getElementById('infoMines');
+const infoSizeEl = document.getElementById('infoSize');
+
+// ── Initialize ──
+function init() {
+  const lv = levels[currentLevel];
+  rows = lv.rows; cols = lv.cols; totalMines = lv.mines;
+  minesRemaining = totalMines;
+  gameOver = false;
+  gameWon = false;
+  firstClick = true;
+  revealedCount = 0;
+  timerValue = 0;
+  if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+
+  board = Array.from({ length: rows }, () =>
+    Array.from({ length: cols }, () => ({
+      mine: false, revealed: false, flagged: false, adjacentMines: 0
+    }))
+  );
+
+  updateMineCounter();
+  updateTimer();
+  faceBtn.textContent = '🙂';
+  levelLabel.textContent = lv.label;
+  infoMinesEl.textContent = totalMines;
+  infoSizeEl.textContent = `${cols}×${rows}`;
+
+  // Highlight active level button
+  document.querySelectorAll('.menu-bar button').forEach(b => b.classList.remove('active'));
+  const btnId = currentLevel === 'beginner' ? 'btnBeginner' :
+                currentLevel === 'intermediate' ? 'btnIntermediate' : 'btnExpert';
+  document.getElementById(btnId).classList.add('active');
+
+  renderBoard();
+}
+
+function resetGame() {
+  init();
+  playStartSound();
+}
+
+function setLevel(level) {
+  currentLevel = level;
+  resetGame();
+}
+
+// ── Place mines (after first click, ensuring safe zone) ──
+function placeMines(safeR, safeC) {
+  const safeCells = new Set();
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      const nr = safeR + dr, nc = safeC + dc;
+      if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) safeCells.add(nr * cols + nc);
+    }
+  }
+
+  let placed = 0;
+  while (placed < totalMines) {
+    const r = Math.floor(Math.random() * rows);
+    const c = Math.floor(Math.random() * cols);
+    if (!board[r][c].mine && !safeCells.has(r * cols + c)) {
+      board[r][c].mine = true;
+      placed++;
+    }
+  }
+
+  // Calculate adjacent mine counts
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (board[r][c].mine) continue;
+      let count = 0;
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          if (dr === 0 && dc === 0) continue;
+          const nr = r + dr, nc = c + dc;
+          if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && board[nr][nc].mine) count++;
+        }
+      }
+      board[r][c].adjacentMines = count;
+    }
+  }
+}
+
+function startTimer() {
+  if (timerInterval) return;
+  timerInterval = setInterval(() => {
+    timerValue++;
+    updateTimer();
+  }, 1000);
+}
+
+function stopTimer() {
+  if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+}
+
+function updateMineCounter() {
+  mineCounterEl.textContent = String(Math.max(-99, Math.min(999, minesRemaining))).padStart(3, '0');
+}
+
+function updateTimer() {
+  timerEl.textContent = String(Math.min(999, timerValue)).padStart(3, '0');
+}
+
+// ── Reveal cell (flood fill) ──
+function revealCell(r, c) {
+  if (r < 0 || r >= rows || c < 0 || c >= cols) return;
+  const cell = board[r][c];
+  if (cell.revealed || cell.flagged) return;
+
+  cell.revealed = true;
+  revealedCount++;
+
+  if (cell.mine) return;
+
+  if (cell.adjacentMines === 0) {
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        if (dr === 0 && dc === 0) continue;
+        revealCell(r + dr, c + dc);
+      }
+    }
+  }
+}
+
+// ── Check win ──
+function checkWin() {
+  const totalCells = rows * cols;
+  if (revealedCount === totalCells - totalMines) {
+    gameOver = true;
+    gameWon = true;
+    stopTimer();
+    faceBtn.textContent = '😎';
+    // Auto-flag remaining mines
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (board[r][c].mine && !board[r][c].flagged) {
+          board[r][c].flagged = true;
+          minesRemaining--;
+        }
+      }
+    }
+    updateMineCounter();
+    renderBoard();
+    playWinSound();
+  }
+}
+
+// ── Handle left click ──
+function handleLeftClick(r, c) {
+  if (gameOver) return;
+  const cell = board[r][c];
+  if (cell.revealed || cell.flagged) return;
+
+  if (firstClick) {
+    firstClick = false;
+    placeMines(r, c);
+    startTimer();
+  }
+
+  if (cell.mine) {
+    // Hit mine — game over
+    cell.revealed = true;
+    gameOver = true;
+    stopTimer();
+    faceBtn.textContent = '💀';
+    // Reveal all mines
+    for (let rr = 0; rr < rows; rr++) {
+      for (let cc = 0; cc < cols; cc++) {
+        if (board[rr][cc].mine) board[rr][cc].revealed = true;
+      }
+    }
+    renderBoard();
+    playExplosionSound();
+    return;
+  }
+
+  revealCell(r, c);
+  playClickSound();
+  renderBoard();
+  checkWin();
+}
+
+// ── Handle right click ──
+function handleRightClick(r, c, e) {
+  e.preventDefault();
+  if (gameOver) return;
+  const cell = board[r][c];
+  if (cell.revealed) return;
+
+  if (firstClick) {
+    firstClick = false;
+    placeMines(r, c);
+    startTimer();
+  }
+
+  if (cell.flagged) {
+    cell.flagged = false;
+    minesRemaining++;
+    playFlagSound();
+  } else {
+    cell.flagged = true;
+    minesRemaining--;
+    playFlagSound();
+  }
+  updateMineCounter();
+  renderBoard();
+}
+
+// ── Chord click (middle button or both buttons on revealed number) ──
+function handleChord(r, c) {
+  if (gameOver) return;
+  const cell = board[r][c];
+  if (!cell.revealed || cell.adjacentMines === 0) return;
+
+  // Count adjacent flags
+  let flagCount = 0;
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      if (dr === 0 && dc === 0) continue;
+      const nr = r + dr, nc = c + dc;
+      if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && board[nr][nc].flagged) flagCount++;
+    }
+  }
+
+  if (flagCount !== cell.adjacentMines) return;
+
+  let hitMine = false;
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      if (dr === 0 && dc === 0) continue;
+      const nr = r + dr, nc = c + dc;
+      if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+      const neighbor = board[nr][nc];
+      if (neighbor.flagged || neighbor.revealed) continue;
+      neighbor.revealed = true;
+      revealedCount++;
+      if (neighbor.mine) { hitMine = true; }
+      else if (neighbor.adjacentMines === 0) revealCell(nr, nc);
+    }
+  }
+
+  if (hitMine) {
+    gameOver = true;
+    stopTimer();
+    faceBtn.textContent = '💀';
+    for (let rr = 0; rr < rows; rr++) {
+      for (let cc = 0; cc < cols; cc++) {
+        if (board[rr][cc].mine) board[rr][cc].revealed = true;
+      }
+    }
+    renderBoard();
+    playExplosionSound();
+  } else {
+    playClickSound();
+    renderBoard();
+    checkWin();
+  }
+}
+
+// ── Render ──
+function renderBoard() {
+  boardEl.style.gridTemplateColumns = `repeat(${cols}, 26px)`;
+  boardEl.innerHTML = '';
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const cell = board[r][c];
+      const el = document.createElement('div');
+      el.className = 'cell';
+      if (cell.revealed) el.classList.add('revealed');
+      if (cell.flagged) el.classList.add('flagged');
+      if (cell.revealed && cell.mine) el.classList.add('mine-hit');
+
+      // Content
+      if (cell.revealed) {
+        if (cell.mine) {
+          el.textContent = '💣';
+        } else if (cell.adjacentMines > 0) {
+          el.textContent = cell.adjacentMines;
+          el.classList.add(`color-${cell.adjacentMines}`);
+        }
+      } else if (cell.flagged) {
+        el.innerHTML = '<span class="flag-icon">🚩</span>';
+      }
+
+      // Events
+      el.addEventListener('click', () => handleLeftClick(r, c));
+      el.addEventListener('contextmenu', (e) => handleRightClick(r, c, e));
+      el.addEventListener('mousedown', (e) => {
+        if (e.button === 1) { e.preventDefault(); handleChord(r, c); }
+      });
+      // Double-click chord for revealed numbers
+      el.addEventListener('dblclick', () => {
+        if (cell.revealed && !cell.mine) handleChord(r, c);
+      });
+
+      boardEl.appendChild(el);
+    }
+  }
+}
+
+// ── Keyboard shortcuts ──
+document.addEventListener('keydown', (e) => {
+  switch (e.key) {
+    case '1': setLevel('beginner'); break;
+    case '2': setLevel('intermediate'); break;
+    case '3': setLevel('expert'); break;
+    case 'r': case 'R': resetGame(); break;
+  }
+});
+
+// ── Start ──
+init();
+playStartSound();
+</script>
+</body>
+</html>
