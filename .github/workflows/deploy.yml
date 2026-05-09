@@ -1,0 +1,46 @@
+name: Deploy Wiki to GitHub Pages
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'heartopia/**'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: heartopia
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: heartopia/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build VitePress site
+        run: npm run build
+
+      - name: Assemble deploy directory
+        run: |
+          mkdir -p ../deploy-temp/wiki
+          cp ../index.html ../deploy-temp/
+          cp -r docs/.vitepress/dist/* ../deploy-temp/wiki/
+
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./deploy-temp
+          publish_branch: gh-pages
+          force_orphan: true
